@@ -1,7 +1,7 @@
 import re
 from functools import lru_cache
 
-from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer  # type: ignore[import-untyped]
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
 from macropulse.models import Alert, Post
 

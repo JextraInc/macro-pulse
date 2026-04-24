@@ -40,6 +40,10 @@ strict = true
 python_version = "3.11"
 plugins = ["pydantic.mypy"]
 
+[[tool.mypy.overrides]]
+module = ["vaderSentiment.*"]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
