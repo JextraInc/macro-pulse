@@ -27,3 +27,12 @@ def test_dedup_creates_file(tmp_path):
     store.mark_seen("a")
     assert db.exists()
     store.close()
+
+
+def test_seen_at_round_trips_as_datetime():
+    store = SeenStore(":memory:")
+    ts = datetime(2026, 4, 23, 17, 0, tzinfo=UTC)
+    store._insert_with_ts("x", ts)
+    row = store._conn.execute("SELECT seen_at FROM seen_posts WHERE id = ?", ("x",)).fetchone()
+    assert isinstance(row[0], datetime)
+    assert row[0] == ts

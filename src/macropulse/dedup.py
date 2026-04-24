@@ -3,6 +3,18 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 
+def _adapt_datetime(value: datetime) -> str:
+    return value.isoformat()
+
+
+def _convert_timestamp(raw: bytes) -> datetime:
+    return datetime.fromisoformat(raw.decode())
+
+
+sqlite3.register_adapter(datetime, _adapt_datetime)
+sqlite3.register_converter("TIMESTAMP", _convert_timestamp)
+
+
 class SeenStore:
     """SQLite-backed dedup store. `:memory:` supported for tests."""
 
