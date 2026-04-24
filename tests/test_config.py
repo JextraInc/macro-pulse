@@ -1,4 +1,5 @@
-from pathlib import Path
+import pytest
+from pydantic import ValidationError
 
 from macropulse.config import Settings
 
@@ -12,13 +13,10 @@ def test_defaults(monkeypatch, tmp_path):
     assert "shoot and kill" in s.BEARISH_KEYWORDS
     assert "realDonaldTrump" in s.TRUTHSOCIAL_HANDLES
     assert s.DEDUP_TTL_DAYS == 7
-    assert s.DEDUP_DB_PATH == Path(tmp_path / "seen.db")  # noqa: SIM300
+    assert s.DEDUP_DB_PATH == tmp_path / "seen.db"  # noqa: SIM300
 
 
 def test_webhook_required(monkeypatch):
     monkeypatch.delenv("DISCORD_WEBHOOK_URL", raising=False)
-    import pytest
-    from pydantic import ValidationError
-
     with pytest.raises(ValidationError):
         Settings(_env_file=None)  # type: ignore[call-arg]
