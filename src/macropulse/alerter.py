@@ -32,14 +32,6 @@ class _TransientDiscordError(Exception):
         self.retry_after: float | None = retry_after
 
 
-_backoff = wait_exponential(multiplier=1, min=1, max=30)
-
-
-def _retry_after_or_backoff(state: RetryCallState) -> float:
-    exc = state.outcome.exception() if state.outcome else None
-    if isinstance(exc, _TransientDiscordError) and exc.retry_after is not None:
-        return exc.retry_after
-    return float(_backoff(state))
 
 
 class DiscordAlerter:
@@ -51,6 +43,9 @@ class DiscordAlerter:
         timeout: float = 15.0,
         user_agent: str = "MacroPulseSPX/1.0",
         max_per_minute: int = 30,
+        max_attempts: int = 5,
+        backoff_min: float = 1.0,
+        backoff_max: float = 30.0,
     ) -> None:
         self._webhook_url = webhook_url
         self._client = httpx.AsyncClient(
@@ -58,6 +53,9 @@ class DiscordAlerter:
             headers={"User-Agent": user_agent, "Content-Type": "application/json"},
         )
         self._max_per_minute = max_per_minute
+        self._max_attempts = max_attempts
+        self._backoff_min = backoff_min
+        self._backoff_max = backoff_max
         self._recent: deque[float] = deque()
         self._lock = asyncio.Lock()
 
@@ -88,11 +86,21 @@ class DiscordAlerter:
 
     async def send(self, alert: Alert) -> None:
         payload = self._build_payload(alert)
+        backoff = wait_exponential(
+            multiplier=1, min=self._backoff_min, max=self._backoff_max
+        )
+
+        def wait(state: RetryCallState) -> float:
+            exc = state.outcome.exception() if state.outcome else None
+            if isinstance(exc, _TransientDiscordError) and exc.retry_after is not None:
+                return exc.retry_after
+            return float(backoff(state))
+
         try:
             async for attempt in AsyncRetrying(
                 reraise=True,
-                stop=stop_after_attempt(5),
-                wait=_retry_after_or_backoff,
+                stop=stop_after_attempt(self._max_attempts),
+                wait=wait,
                 retry=retry_if_exception_type((_TransientDiscordError, httpx.TransportError)),
             ):
                 with attempt:

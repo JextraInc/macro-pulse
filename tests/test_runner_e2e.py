@@ -43,3 +43,26 @@ async def test_april_23_reference(tmp_path, settings):
     assert "shoot and kill" in embed["title"]
     sentiment_field = next(f for f in embed["fields"] if f["name"] == "Sentiment")
     assert float(sentiment_field["value"]) < -0.6
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_discord_failure_does_not_kill_loop(tmp_path, settings):
+    """Acceptance criterion: a Discord outage must not raise out of run_once.
+
+    The post is left unmarked in dedup so the next tick can retry.
+    """
+    respx.post(WEBHOOK).mock(return_value=httpx.Response(500))
+    provider = ReplayProvider(FX)
+    seen = SeenStore(tmp_path / "seen.db")
+    async with DiscordAlerter(
+        webhook_url=WEBHOOK,
+        timeout=5.0,
+        max_attempts=2,
+        backoff_min=0,
+        backoff_max=0,
+    ) as alerter:
+        sent = await run_once([provider], alerter, seen, settings)
+
+    assert sent == 0
+    assert seen.has_seen("truthsocial:replay-april-23") is False

@@ -69,6 +69,11 @@ class TruthSocialProvider(FeedProvider):
             try:
                 acct_id = await self._resolve_id(handle)
                 statuses = await self._statuses(acct_id)
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code == 404:
+                    self._id_cache.pop(handle, None)
+                log.warning("truthsocial.fetch_failed", handle=handle, error=str(exc))
+                continue
             except Exception as exc:
                 log.warning("truthsocial.fetch_failed", handle=handle, error=str(exc))
                 continue
@@ -106,9 +111,6 @@ class TruthSocialProvider(FeedProvider):
             ):
                 with attempt:
                     resp = await self._client.request(method, url, **kwargs)
-                    if resp.status_code == 404 and "/accounts/lookup" not in url:
-                        self._id_cache.clear()
-                        resp.raise_for_status()
                     if resp.status_code == 429 or 500 <= resp.status_code < 600:
                         raise _Transient(f"{resp.status_code} on {url}")
                     resp.raise_for_status()
