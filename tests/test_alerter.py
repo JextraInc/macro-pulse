@@ -1,3 +1,4 @@
+import time
 from datetime import UTC, datetime
 
 import httpx
@@ -52,6 +53,22 @@ async def test_retry_on_429():
             httpx.Response(204),
         ]
     )
+    start = time.monotonic()
     async with DiscordAlerter(webhook_url=WEBHOOK, timeout=5.0) as alerter:
         await alerter.send(_alert())
+    elapsed = time.monotonic() - start
     assert route.call_count == 2
+    assert elapsed >= 1.0
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_embed_posted_at_is_utc():
+    route = respx.post(WEBHOOK).mock(return_value=httpx.Response(204))
+    async with DiscordAlerter(webhook_url=WEBHOOK, timeout=5.0) as alerter:
+        await alerter.send(_alert())
+    import json
+
+    payload = json.loads(route.calls.last.request.content.decode())
+    posted_at = next(f["value"] for f in payload["embeds"][0]["fields"] if f["name"] == "Posted At")
+    assert posted_at.endswith("+00:00") or posted_at.endswith("Z")
