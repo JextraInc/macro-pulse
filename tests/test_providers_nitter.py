@@ -3,22 +3,10 @@ from pathlib import Path
 import httpx
 import pytest
 import respx
-import structlog
 
 from macropulse.providers.nitter import NitterProvider
 
 FX = Path(__file__).parent / "fixtures"
-
-
-@pytest.fixture(autouse=True)
-def _reset_structlog():
-    # test_logging.py's configure_logging caches sys.stdout in a
-    # PrintLoggerFactory. Under pytest capture, that reference becomes a closed
-    # file by the time unrelated tests run, so any log.warning() call explodes.
-    # Reset to defaults (stderr, no cache) for this module.
-    structlog.reset_defaults()
-    yield
-    structlog.reset_defaults()
 
 
 @pytest.mark.asyncio
