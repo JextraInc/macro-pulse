@@ -208,3 +208,4 @@ __marimo__/
 
 # MacroPulse
 data/
+.claude/settings.local.json
