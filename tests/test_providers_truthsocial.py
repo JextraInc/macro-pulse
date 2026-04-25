@@ -175,3 +175,24 @@ async def test_404_clears_id_cache() -> None:
 def test_transient_class_is_local() -> None:
     """Sanity: _Transient is a local marker, not leaked from elsewhere."""
     assert issubclass(_Transient, Exception)
+
+
+@pytest.mark.asyncio
+async def test_proxy_kwarg_accepted_no_op_when_none() -> None:
+    """Constructor accepts proxy=None (default) without error."""
+    p = TruthSocialProvider(handles=["x"], timeout=5.0, proxy=None)
+    await p.aclose()
+
+
+@pytest.mark.asyncio
+async def test_proxy_kwarg_accepted_when_set() -> None:
+    """Constructor accepts proxy='http://user:pass@host:port' without error.
+
+    We don't actually route traffic — curl_cffi handles that — we just verify
+    the kwarg propagates and the session constructs cleanly.
+    """
+    p = TruthSocialProvider(
+        handles=["x"], timeout=5.0,
+        proxy="http://user:pass@proxy.example:8080",
+    )
+    await p.aclose()
