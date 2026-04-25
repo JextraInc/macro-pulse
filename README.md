@@ -153,9 +153,7 @@ kill the loop. SIGINT / SIGTERM shuts down gracefully.
 
 MacroPulse SPX is built as both a standalone daemon (`python -m macropulse`)
 and a library. The pieces below are stable, side-effect-free, and safe to
-import from another scheduler — for example
-[ai-lotto-dashboard](https://github.com/Ahmedalbadri25/ai-lotto-dashboard)'s
-APScheduler.
+import from another scheduler (e.g. APScheduler in a host service).
 
 ### Public API surface
 
