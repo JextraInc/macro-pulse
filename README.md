@@ -148,3 +148,111 @@ fires an alert if both the keyword match and sentiment check pass. Discord
 failures back off exponentially and honor `Retry-After`; successful sends mark
 the post as seen. Provider outages, Discord 429s, or network errors do not
 kill the loop. SIGINT / SIGTERM shuts down gracefully.
+
+## Embedding into another service
+
+MacroPulse SPX is built as both a standalone daemon (`python -m macropulse`)
+and a library. The pieces below are stable, side-effect-free, and safe to
+import from another scheduler — for example
+[ai-lotto-dashboard](https://github.com/Ahmedalbadri25/ai-lotto-dashboard)'s
+APScheduler.
+
+### Public API surface
+
+| Symbol | Module | What it does |
+|---|---|---|
+| `Post` / `Alert` | `macropulse.models` | Pydantic v2 data models. `Post.id` is the dedup key; format `f"{source}:{native_id}"`. |
+| `evaluate(post, keywords, threshold)` | `macropulse.signal` | Pure function. Returns `Alert \| None`. Runs VADER once. |
+| `FeedProvider` Protocol | `macropulse.providers.base` | `name: str` + `async fetch() -> list[Post]`. |
+| `TruthSocialProvider` | `macropulse.providers.truthsocial` | Real Mastodon-fork client with handle→id cache, tenacity retries, HTML stripping. Async context manager. |
+| `NitterProvider` | `macropulse.providers.nitter` | RSS-over-Nitter with instance rotation. Returns `[]` on full-pool failure. |
+| `ReplayProvider` | `macropulse.providers.replay` | One-shot file replay. Use for backtests or seeding integration tests. |
+| `SeenStore` | `macropulse.dedup` | SQLite-backed `has_seen` / `mark_seen` / `prune`. Pass `":memory:"` or any `Path`. |
+| `DiscordAlerter` | `macropulse.alerter` | Async webhook sender with rate limiter + Retry-After-aware backoff. Embeds-style payload. |
+| `run_once(providers, alerter, seen, settings)` | `macropulse.runner` | One pipeline tick. Returns alert count. Survives Discord/provider failures. |
+| `build_providers(settings)` | `macropulse.runner` | Factory honoring `Settings`. Skip if you build providers directly. |
+
+### Minimal embedding example
+
+```python
+# inside another service's scheduler
+from datetime import UTC, datetime
+from macropulse.providers.truthsocial import TruthSocialProvider
+from macropulse.signal import evaluate
+from macropulse.dedup import SeenStore
+
+KEYWORDS = ["shoot and kill", "blockade", "retaliation", "missile"]
+THRESHOLD = -0.6
+
+seen = SeenStore("./data/macropulse_seen.db")  # share or isolate per host
+seen.prune(ttl_days=7)
+
+async def tick() -> list[dict]:
+    """Returns alerts as plain dicts; caller decides where to send them."""
+    alerts: list[dict] = []
+    async with TruthSocialProvider(handles=["realDonaldTrump"]) as p:
+        for post in await p.fetch():
+            if seen.has_seen(post.id):
+                continue
+            seen.mark_seen(post.id)
+            alert = evaluate(post, KEYWORDS, THRESHOLD)
+            if alert is None:
+                continue
+            alerts.append({
+                "source": "macropulse",
+                "ticker": "SPY",         # or whatever your ticker model expects
+                "ts": datetime.now(UTC),
+                "headline": f"Bearish trigger: {alert.matched_keyword}",
+                "body": alert.post.content,
+                "url": alert.post.url,
+                "compound": alert.compound_score,
+            })
+    return alerts
+```
+
+Wrap that in your existing job runner, hand the dicts to your alert dispatcher,
+and you've integrated. No daemon mode, no separate Discord webhook, no
+parallel SQLite.
+
+### Knobs to align across services
+
+- **Dedup ownership** — pick one SQLite file. If the dashboard is the system
+  of record, point `SeenStore` at *its* `data/` dir; or skip `SeenStore`
+  entirely and dedup against your own `alerts_log` table by `Post.id`.
+- **Discord styling** — `DiscordAlerter` posts an embed; the dashboard's
+  `alerts/discord.py` posts plain markdown / file attachments. If you want
+  one channel, pick one shape and bypass the other (use `evaluate()` only and
+  hand the result to the dashboard's dispatcher).
+- **Logging** — MacroPulse uses `structlog` JSON to stdout; the dashboard
+  uses `loguru`. When embedding, you generally want the host's logger.
+  Either (a) call `macropulse.logging.configure_logging(...)` from `__main__`
+  only and don't call it from library code (the providers grab their logger
+  via `get_logger(__name__)` at import time, so they'll get whatever
+  structlog config is in effect), or (b) shim by adding a `loguru` handler
+  that consumes structlog output. Pure-library callers should not need to
+  configure logging at all.
+- **Settings duplication** — `macropulse.config.Settings` and the
+  dashboard's pydantic-settings both want `DISCORD_WEBHOOK_URL`. If
+  embedding, instantiate `TruthSocialProvider` / `NitterProvider` directly
+  with explicit args from your host config; don't load `macropulse.Settings`
+  at all.
+
+### What stays in `macropulse-spx`
+
+- `runner.main()` and `__main__.py` — only relevant if you run as a separate
+  daemon. Skip when embedding.
+- `DiscordAlerter` — useful standalone; redundant if your host already has
+  a Discord sink.
+- `Settings` / `.env` loading — unused when embedding.
+
+The pieces worth importing are `providers/`, `signal.py`, `dedup.py`, and
+`models.py`. Everything else is glue that the host can replace.
+
+### Side-by-side daemon mode (zero code changes)
+
+If you just want the alerts in a Discord channel without touching the
+dashboard, run macropulse as its own systemd service pointed at a separate
+webhook URL (the dashboard's webhooks live in its `.env`; create a new
+webhook in the same Discord channel, or in a dedicated `#macropulse-alerts`
+channel). The two services will not collide — different SQLite paths,
+different processes, different webhooks.
