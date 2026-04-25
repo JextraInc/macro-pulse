@@ -77,7 +77,16 @@ class TruthSocialProvider(FeedProvider):
         backoff_min: float = 1,
         backoff_max: float = 30,
         impersonate: str = _IMPERSONATE_PROFILE,
+        proxy: str | None = None,
     ) -> None:
+        """Construct the provider.
+
+        ``proxy`` is forwarded to curl_cffi as-is. Use this when the host's
+        own IP gets Cloudflare-blocked at truthsocial.com (a common issue
+        for cloud-VPS IP ranges, even with TLS impersonation). The string
+        format is ``http://[user:pass@]host:port`` per curl/libcurl. ``None``
+        keeps the direct-connection behavior.
+        """
         self._handles = handles
         # IMPORTANT: under TLS impersonation, every header curl_cffi sets must
         # match the impersonated browser to slip past Cloudflare's bot
@@ -97,6 +106,7 @@ class TruthSocialProvider(FeedProvider):
             # else (UA, Accept-Language, Sec-Fetch-*) must come from
             # impersonation.
             headers={"Accept": "application/json"},
+            proxy=proxy,
         )
         self._id_cache: dict[str, str] = {}
         self._max_attempts = max_attempts
